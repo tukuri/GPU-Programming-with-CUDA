@@ -1,0 +1,208 @@
+CS179 Final Project
+Multivariate Regression (4-dimension) with CUDA
+
+Name: Sung Hoon Choi
+
+1. Test Script Instruction (How to run the test & How the output makes sense)------------------------------------------------------------------
+
+Take the following steps to run the test.
+*step 1: chmod +x demo_project.sh  (Make the bash file into an exectuable file by changing the permissions)
+*step 2: ./demo_project.sh (Run the executable file. ./demo_project.sh will run compile the codes, generate two testfiles, and execute them in order)
+
+Once you follow the instructions, you will have two tests run (Test1 runs on 20 predictors while Test2 runs on 30 predictors)
+Then you would see <CPU Summary> and <GPU Summary> for Test 1 and Test 2. 
+The summaries contain the final parameters, final costs, and total number of iterations taken for each regression.
+
+When you compare the CPU Summary and GPU Summary, you would see that the GPU code produces the same output as the CPU code. 
+They take almost same number of iterations, and produce almost same final costs and parameters. 
+Therefore, the GPU code is correct. (I generated the testvectors using MATLAB, and double-checked the correctness by running the regression on MATLAB)
+
+For your convenience, I copied the test outputs here.
+
+************************************************Test 1 (20 predictors) ************************************************
+CPU regression has started
+..................
+------------CPU regression success! (NUM_SAMPLE = 20, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< CPU Summary >>
+Initial cost :61006.75  (iteration 0) ---> Final cost : 117.49  (iteration 17590)
+parameter 0: -35.507160
+parameter 1: 3.644612
+parameter 2: 1.340156
+parameter 3: 0.190318
+
+GPU regression has started..
+..................
+------------GPU regression success! (NUM_SAMPLE = 20, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< GPU Summary >>
+Initial cost :61006.75  (iteration 0) ---> Final cost :  117.45  (iteration 17625)
+parameter 0: -35.532814
+parameter 1: 3.644974
+parameter 2: 1.340078
+parameter 3: 0.190711
+
+
+************************************************Test 2 (30 predictors) ************************************************
+CPU regression has started
+.....
+------------CPU regression success! (NUM_SAMPLE = 30, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< CPU Summary >>
+Initial cost :395844.22  (iteration 0) ---> Final cost : 242.16  (iteration 4705)
+parameter 0: -4.340182
+parameter 1: 1.487391
+parameter 2: 0.116327
+parameter 3: 1.985808
+
+GPU regression has started..
+.....
+------------GPU regression success! (NUM_SAMPLE = 30, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< GPU Summary >>
+Initial cost :395844.22  (iteration 0) ---> Final cost :  241.97  (iteration 4882)
+parameter 0: -4.474020
+parameter 1: 1.488335
+parameter 2: 0.117430
+parameter 3: 1.987802
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+  
+
+
+2. Motivation----------------------------------------------------------------------------------------------------------------------------------------
+
+As GPU is commonly utilized by computer scientists today, I also wanted to try utilizing the GPU and CUDA myself to implement one of the popular machine learning algorithms.
+While a complex machine learning algorithm such as deep neural network or recurrent neural networks might have been a good final project as well, such complex algorithms
+would require using various libraries such as CuDNN(also considering the time we've got) However, my goal was to implement the entire algorithm WITHOUT using such high level libraries.
+Therefore, I decided to implement a 'Multivariate Regression' in CUDA for GPU. I implemented the algorithm in both CPU and GPU so that I could check the codes output against the CPU code.
+Although the code would be able to handle generic dimensions with little modification, the code now is implemented to run the 4-dimdensional regression. 
+The first test file runs the regression on 20 predictors, 4 parameters (including bias)  
+The second test file runs the regression on 30 predictors, 4 parameters (including bias)
+Please note that the term 'feature' in this README file is equivalent to 'parameter', or 'coefficient' of regression.
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+3. High-level overview of the algorithm--------------------------------------------------------------------------------------------------------------
+
+The multivariate regression is a linear regression algorithm but with high-dimensional data. The high-dimensional data here indicates any data with a dimension larger than 2.
+For example, my multivariate regression code implements a 4-dimensional regression with 4 parameters including the bias.
+The regression uses the gradient descent to compute the final parameter values that minimize the cost. I used the square-mean-error for the cost function since it is the most widely 
+used cost function for regression algorithms. 
+
+<Algorithm>
+1. Compute the cost
+2. Calculate the gradients for each parameter using the current parameter and the predictor
+3. Update the parameters by using the gradients found at step 2 (= run 1 iteration of gradient descent)
+4. Compute the new cost based on the updated parameters. If the new cost is too large(larger than a predefined constant), then print a divergence error message and exit
+5. Compute how much the cost has been reduced by the gradient descent at step 3
+6. If the cost change is very small(smaller than the predefined number), then stop the regression and print the summary of the regression. The regression has successfully converged.
+   If the cost change is not small enough(bigger than the predefined number), then go back to step 1 and keep running the gradient descent 
+7. If the regression did not converge even after running the maximum number of iterations (which is a predefined number), stop the regression and exit
+
+Equations
+i:[0,num_sample-1]  j:[0,num_param-1]
+cost = (sum{(h_i-y_i)^2})/(2*(num_sample))  //sum is a sum over i
+gradient_j = (sum{(h_i-y_i)*(x_i,j)})/(num_sample) //sum is a sum over i
+new_param_j = old_param_j - learning_rate * gradient_j 
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+4. GPU Optimizations and specifics------------------------------------------------------------------------------------------------------------------
+
+Computing the square-mean-error, computing the gradients for each feature, and updating the parameters were parallelized.
+Different threads take their own predictors to compute the error and gradients.
+Two GPU optimizations were used: sequential addressing reduction and loop unrolling.
+For a reduction, the sequential addressing was used at cudaCalculateSqrtMeanCost() and cudaUpdateParamUsingGradient() to compute the gradients for each parameter, and compute the hypotheses for
+each predictor in parallel. Sequential addressing is free from bank conflict, and reduces the memory access time by minimizing the access to the global memory. Both functions are defined in
+multi_regression.cu file.
+The loop unrolling was used at cudaUpdateParamUsingGradient(). In the code, there are 4 separate gradients in total (one for each parameter) and they are all independent from each other.
+Therefore, the loop unrolling was available for use. Loop unrolling reduces loop overhead, and also can increase the register usage.
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+5. Code Structure-----------------------------------------------------------------------------------------------------------------------------------
+
+1. main_multi_regression.cpp
+   The main file that actually runs the regression on both CPU and GPU.
+   The CPU regression functions and test data sets are also defined in this file.
+   It calls the cpu regression function and gpu regression function in main() function.
+   
+2. multi_regression.cu
+   The .cu file that contains the definitions of GPU regression functions.
+   
+3. multi_regression.cuh
+   The cu header file that contains the definitions of regression hyperparameters(e.g. learning rate, num_param, ...)
+   It also contains the declaration of cudaMultiRegression.
+
+4. helper_cuda.h
+   The header file that contains functions that help debugging CUDA codes. CUDA_CALL was used for all cuda functions in this project for debugging.
+
+5. Makefile
+   The Makefile. It compiles, links, and generates the executable files.
+   It utilizes the preprocessor variable TEST to generate two different executable test files.
+   TEST=1 generates a test with 20 samples(4-dimension including bias) and TEST=2 generates a test with 30 samples(4-dimension including bias)
+
+6. demo_project.sh
+   The linux bash file that runs 'make' to compile the codes and executes the two generated tests in order.
+-----------------------------------------------------------------------------------------------------------------------------------
+
+
+6. Instructions on how to run smaller components of the project----------------------------------------------------------------------------------
+
+If you desire to run only the cudaCalculateSqrtMeanCost(), please comment out the cudaUpdateParamUsingGradient() in cudaMultiRegression().
+To check if the cost computations are correct, you should uncomment the printf statements within the function. 
+Activating those printf statements written for debugging would visualize how the actual computations are being done.
+The printf's within the CUDA functions would allow you to inspect each thread and shared memory.
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ 
+
+7. Code output-----------------------------------------------------------------------------------------------------------------------------------
+
+When you compare the CPU outputs and GPU outputs, you would see that the GPU code produces the same output as CPU code. 
+They take almost same number of iterations and produce almost same final costs and parameters. 
+Therefore, the GPU code is correct. (I confirmed the correctness by running the regression on MATLAB as well)
+
+<Code Output>
+
+************************************************Test 1 (20 predictors) ************************************************
+CPU regression has started
+..................
+------------CPU regression success! (NUM_SAMPLE = 20, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< CPU Summary >>
+Initial cost :61006.75  (iteration 0) ---> Final cost : 117.49  (iteration 17590)
+parameter 0: -35.507160
+parameter 1: 3.644612
+parameter 2: 1.340156
+parameter 3: 0.190318
+
+GPU regression has started..
+..................
+------------GPU regression success! (NUM_SAMPLE = 20, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< GPU Summary >>
+Initial cost :61006.75  (iteration 0) ---> Final cost :  117.45  (iteration 17625)
+parameter 0: -35.532814
+parameter 1: 3.644974
+parameter 2: 1.340078
+parameter 3: 0.190711
+
+
+************************************************Test 2 (30 predictors) ************************************************
+CPU regression has started
+.....
+------------CPU regression success! (NUM_SAMPLE = 30, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< CPU Summary >>
+Initial cost :395844.22  (iteration 0) ---> Final cost : 242.16  (iteration 4705)
+parameter 0: -4.340182
+parameter 1: 1.487391
+parameter 2: 0.116327
+parameter 3: 1.985808
+
+GPU regression has started..
+.....
+------------GPU regression success! (NUM_SAMPLE = 30, NUM_PARAMETERS = 4, LEARNING_RATE = 0.00050) ---------
+<< GPU Summary >>
+Initial cost :395844.22  (iteration 0) ---> Final cost :  241.97  (iteration 4882)
+parameter 0: -4.474020
+parameter 1: 1.488335
+parameter 2: 0.117430
+parameter 3: 1.987802
+----------------------------------------------------------------------------------------------------------------------------------------------
+
